@@ -1,3 +1,5 @@
+#Importing libraries
+
 import torch
 from torch import nn
 from model.Decoder.attention_Decoder import Decoder
@@ -6,6 +8,7 @@ from model.Encoder.uniformer import uniformer_base_ls
 import torch.nn.functional as F
 
 
+#Conv + BN + Relu Function
 class BasicConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1):
         super(BasicConv2d, self).__init__()
@@ -21,7 +24,7 @@ class BasicConv2d(nn.Module):
         x = self.relu(x)
         return x
 
-
+#Channel Attention Module
 class CAM(nn.Module):
     def __init__(self, channel):
         super(CAM, self).__init__()
@@ -34,9 +37,11 @@ class CAM(nn.Module):
         att = nn.Softmax(dim=1)(att)
         att = att - att.min()
         att = att / att.max()
+        #Above is the normalising step
         return att
 
 
+#Bottom-Up Detail Refinement module
 class BDRM(nn.Module):
     def __init__(self):
         super(BDRM, self).__init__()
@@ -56,7 +61,7 @@ class BDRM(nn.Module):
         return fea_out, att_ca, fea_ca
 
 
-
+#Spatial Attention Module
 class SAM(nn.Module):
     def __init__(self):
         super(SAM, self).__init__()
@@ -80,14 +85,16 @@ class SAM(nn.Module):
         att = att.view(b, 1, h, w)
         return att
 
-    
+
+#Upsampling Function
 def upsample_like(src, tar=None, shape=None):
     if tar is not None:
         src = F.interpolate(src, size=tar.shape[2:], mode='bilinear', align_corners=True)
     elif tar is None and shape is not None:
         src = F.interpolate(src, size=shape, mode='bilinear', align_corners=True)
     return src
-    
+
+#Top-Down Local Refinement Module
 class TLRM(nn.Module):
     def __init__(self):
         super(TLRM, self).__init__()
@@ -106,6 +113,7 @@ class TLRM(nn.Module):
         fea_out  = F.relu(self.bn(self.conv(fea_fuse)) + in_high, inplace=True)
         return fea_out, att_l2h
 
+#Attention Enhancement Module
 class MEA(nn.Module):
     def __init__(self, channel):
         super(MEA, self).__init__()
@@ -133,6 +141,7 @@ class MEA(nn.Module):
         return s_mea
 
 
+#Bidirectional Feature Enhancement Module(BFEM)
 class ABFRM(nn.Module):
     def __init__(self):
         super(ABFRM, self).__init__()
@@ -167,7 +176,7 @@ class ABFRM(nn.Module):
 
  
 
-
+#Channel Attention
 class ChannelAttention(nn.Module):
     def __init__(self, in_planes, ratio=16):
         super(ChannelAttention, self).__init__()
@@ -186,7 +195,7 @@ class ChannelAttention(nn.Module):
         out = avg_out + max_out
         return self.sigmoid(out)
 
-
+#Spatial Attention
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
@@ -205,7 +214,7 @@ class SpatialAttention(nn.Module):
         return self.sigmoid(x)
 
 
-
+#Network Architecture
 class MyNet(nn.Module):
     def __init__(self,
                  channel=64):
