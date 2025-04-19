@@ -1,3 +1,4 @@
+#importing libraries
 import argparse
 import os
 import time
@@ -26,21 +27,30 @@ parser.add_argument('--decay_rate', type=float, default=0.1, help='decay rate of
 parser.add_argument('--decay_epoch', type=int, default=30, help='every n epochs decay learning rate')
 opt = parser.parse_args()
 
+#initializing my model
 model = MyNet()
 model.cuda()
 
+
 params = model.parameters()
+
+#Adam optimizer
 optimizer = torch.optim.Adam(params, opt.lr)
 
+#Dataset path
 train_image_root = 'EORSSD/train-images'
 train_gt_root = 'EORSSD/train-labels'
 
+#initializing train_loader
 train_loader = get_loader(train_image_root, train_gt_root, batchsize=opt.batchsize, size=opt.trainsize,is_train=True)
+
 
 train_total_step = len(train_loader)
 print(train_total_step)
 
+#initialising BCE loss
 bce_loss = torch.nn.BCEWithLogitsLoss()
+#initialising IOU loss
 iou_loss = pytorch_iou.IOU(size_average=True)
 
 def train_one_epoch(train_loader, model, optimizer, epoch):
