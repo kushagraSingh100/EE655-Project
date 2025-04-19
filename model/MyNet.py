@@ -3,8 +3,10 @@ from torch import nn
 from model.Decoder.attention_Decoder import Decoder
 import torch.nn.functional as F
 from model.Encoder.uniformer import uniformer_base_ls
+import torch.nn.functional as F
 
 
+#Convolution + BN + Relu
 class BasicConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1):
         super(BasicConv2d, self).__init__()
@@ -21,6 +23,7 @@ class BasicConv2d(nn.Module):
         return x
 
 
+#Channel Attention Module
 class CAM(nn.Module):
     def __init__(self, channel):
         super(CAM, self).__init__()
@@ -36,8 +39,6 @@ class CAM(nn.Module):
         return att
 
 
-
-import torch.nn.functional as F
 
 
 # Bottom-up detail refinement module
@@ -61,6 +62,7 @@ class BDRM(nn.Module):
 
 
 
+#Spatial Attention Module
 class SAM(nn.Module):
     def __init__(self):
         super(SAM, self).__init__()
@@ -84,14 +86,15 @@ class SAM(nn.Module):
         att = att.view(b, 1, h, w)
         return att
 
-    
+#Upsample Function 
 def upsample_like(src, tar=None, shape=None):
     if tar is not None:
         src = F.interpolate(src, size=tar.shape[2:], mode='bilinear', align_corners=True)
     elif tar is None and shape is not None:
         src = F.interpolate(src, size=shape, mode='bilinear', align_corners=True)
     return src
-    
+
+
 # Top-down location refinement module
 class TLRM(nn.Module):
     def __init__(self):
@@ -111,6 +114,8 @@ class TLRM(nn.Module):
         fea_out  = F.relu(self.bn(self.conv(fea_fuse)) + in_high, inplace=True)
         return fea_out, att_l2h
 
+
+#Attention Enhancement Module
 class MEA(nn.Module):
     def __init__(self, channel):
         super(MEA, self).__init__()
@@ -138,7 +143,7 @@ class MEA(nn.Module):
         return s_mea
 
 
-# Attention-guided Bi-directional Feature Refinement Module
+# Bi-directional Feature Refinement Module
 class ABFRM(nn.Module):
     def __init__(self):
         super(ABFRM, self).__init__()
@@ -173,7 +178,7 @@ class ABFRM(nn.Module):
 
  
 
-
+#Channel Attention Module
 class ChannelAttention(nn.Module):
     def __init__(self, in_planes, ratio=16):
         super(ChannelAttention, self).__init__()
@@ -193,6 +198,7 @@ class ChannelAttention(nn.Module):
         return self.sigmoid(out)
 
 
+#Spatial Attention Module
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
@@ -211,6 +217,7 @@ class SpatialAttention(nn.Module):
         return self.sigmoid(x)
 
 
+#Not used in this model
 class SDEM(nn.Module):
     def __init__(self, channel):
         super().__init__()
@@ -233,34 +240,6 @@ class SDEM(nn.Module):
 
         return ans
 
-class BiAttention(nn.Module):
-    def __init__(self, in_channel):
-        super(BiAttention, self).__init__()
-        self.conv_h = nn.Linear(in_channel, in_channel)
-        self.conv_w = nn.Linear(in_channel, in_channel)
-        self.conv = nn.Sequential(nn.Conv2d(in_channel, in_channel, 3, stride=1, padding=1, bias=False),
-                                  nn.BatchNorm2d(in_channel),
-                                  nn.ReLU()
-                                  )
-
-        self.softmax = nn.Softmax(dim=-1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-
-    def forward(self, x):
-        N, C, H, W = x.size()
-        x_h = x.permute(0, 3, 1, 2).contiguous().view(N * W, -1, H)
-        x_w = x.permute(0, 2, 1, 3).contiguous().view(N * H, -1, W)
-        x_h_ = self.conv_h(F.avg_pool2d(x, [1, W]).view(N, -1, H).permute(0, 2, 1))
-        x_w_ = self.conv_w(F.avg_pool2d(x, [H, 1]).view(N, -1, W).permute(0, 2, 1))
-        weight_h = self.softmax(torch.matmul(x_h, x_h_.repeat(W, 1, 1)))
-        weight_w = self.softmax(torch.matmul(x_w, x_w_.repeat(H, 1, 1)))
-        out_h = torch.bmm(weight_h, x_h).view(N, W, -1, H).permute(0, 2, 3, 1)
-        out_w = torch.bmm(weight_w, x_w).view(N, H, -1, W).permute(0, 2, 1, 3)
-
-        out = self.gamma * (out_h + out_w) + x
-
-        return self.conv(out)
-
 
 class MyNet(nn.Module):
     def __init__(self,
@@ -276,7 +255,6 @@ class MyNet(nn.Module):
         backbone.load_state_dict(state_dict)
         self.backbone = backbone
 
-        # neck模块
         self.ca_1 = ChannelAttention(64)
         self.sa_1 = SpatialAttention()
 
@@ -302,7 +280,6 @@ class MyNet(nn.Module):
         self.sdem_4 = SDEM(channel)
         self.unn = ABFRM()
 
-        # Decoder模块
         self.Decoder = Decoder(in_channel_List=[64, 64, 64, 64])
 
     def upsample(self, x, input):
@@ -316,7 +293,6 @@ class MyNet(nn.Module):
         x3 = encoder[2]  # 320x22x22
         x4 = encoder[3]  # 512x11x11
 
-        # neck
         f1 = self.ca_1(x1) * x1
         f1 = self.sa_1(f1) * f1
         f1 = self.Translayer_1(f1)
