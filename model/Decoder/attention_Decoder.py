@@ -1,9 +1,8 @@
-#importing libraries
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-#Convolution + BN + Relu
+
 class BasicConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1):
         super(BasicConv2d, self).__init__()
@@ -19,7 +18,8 @@ class BasicConv2d(nn.Module):
         x = self.relu(x)
         return x
 
-#Semantic Perception Fusion Module
+
+# FGM 模块
 class SSFM(nn.Module):
     def __init__(self, in_dim):
         super(SSFM, self).__init__()
@@ -57,7 +57,70 @@ class SSFM(nn.Module):
 
         return out
 
-#Upsampling Feature Refinement Module
+class ERM(nn.Module):
+    def __init__(self, inc, outc):
+        super(ERM, self).__init__()
+        self.conv_p1 = nn.Conv2d(inc, outc, kernel_size=3, padding=1)
+        self.conv_p2 = nn.Conv2d(inc, outc, kernel_size=3,padding = 1)
+        self.conv_glb = nn.Conv2d(outc, inc, kernel_size=1)
+
+        self.conv_matt = nn.Sequential(nn.Conv2d(outc, inc, kernel_size=3, padding=1),
+                                       nn.BatchNorm2d(inc),
+                                       nn.LeakyReLU(inplace=True))
+        self.conv_fuse = nn.Sequential(nn.Conv2d(inc, inc, kernel_size=3, padding=1),
+                                       nn.BatchNorm2d(inc),
+                                       nn.LeakyReLU(inplace=True),
+                                       nn.Conv2d(inc, inc, kernel_size=3, padding=1),
+                                       nn.BatchNorm2d(inc),
+                                       nn.LeakyReLU(inplace=True),
+                                       nn.Conv2d(inc, inc, kernel_size=3, padding=1),
+                                       nn.BatchNorm2d(inc),
+                                       nn.LeakyReLU(inplace=True))
+
+        self.sigmoid = nn.Sigmoid()
+    
+        self.inc = inc
+
+    def tensor_erode(self, bin_img, ksize=3):
+        # padding is added to the original image first to prevent the image size from shrinking after corrosion
+        B, C, H, W = bin_img.shape
+        pad = (ksize - 1) // 2
+        bin_img = F.pad(bin_img, [pad, pad, pad, pad], mode='constant', value=0)
+        # unfold the original image into a patch
+        patches = bin_img.unfold(dimension=2, size=ksize, step=1)
+        patches = patches.unfold(dimension=3, size=ksize, step=1)
+        # B x C x H x W x k x k
+        # Take the smallest value in each patch
+        eroded, _ = patches.reshape(B, C, H, W, -1).min(dim=-1)
+        return eroded
+
+    def tensor_dilate(self, bin_img, ksize=3):  #
+        # padding is added to the original image first to prevent the image size from shrinking after corrosion
+        B, C, H, W = bin_img.shape
+        pad = (ksize - 1) // 2
+        bin_img = F.pad(bin_img, [pad, pad, pad, pad], mode='constant', value=0)
+        # unfold the original image into a patch
+        patches = bin_img.unfold(dimension=2, size=ksize, step=1)
+        patches = patches.unfold(dimension=3, size=ksize, step=1)
+        # B x C x H x W x k x k
+        # Take the largest value in each patch
+        dilate = patches.reshape(B, C, H, W, -1)
+        dilate, _ = dilate.max(dim=-1)
+        return dilate
+
+    def forward(self, x):
+        x = self.conv_fuse(x)
+        p1 = self.conv_p1(x)
+        d = self.tensor_dilate(p1)
+        e = self.tensor_erode(p1)
+        matt = d - e
+        matt = self.conv_matt(matt)
+
+        fea = x * (1 + matt)  # refining
+        f = self.conv_p2(fea)
+        return f
+
+
 class UFRM(nn.Module):
     def __init__(self):
         super(UFRM, self).__init__()
@@ -75,7 +138,6 @@ class UFRM(nn.Module):
         out = F.relu(self.bn(self.conv(torch.cat((fea2, fuse), dim=1))) + fea1, inplace=True)
         return out
 
-#BiAttention Module
 class BiAttention(nn.Module):
     def __init__(self, in_channel):
         super(BiAttention, self).__init__()
@@ -91,20 +153,20 @@ class BiAttention(nn.Module):
 
     def forward(self, x):
         N, C, H, W = x.size()
-        x_h = x.permute(0, 3, 1, 2).contiguous().view(N * W, -1, H) #(N*W,C,H)
-        x_w = x.permute(0, 2, 1, 3).contiguous().view(N * H, -1, W) #(N*H,C,W)
-        x_h_ = self.conv_h(F.avg_pool2d(x, [1, W]).view(N, -1, H).permute(0, 2, 1)) # N,H,C
-        x_w_ = self.conv_w(F.avg_pool2d(x, [H, 1]).view(N, -1, W).permute(0, 2, 1)) # N,W,C
-        weight_h = self.softmax(torch.matmul(x_h, x_h_.repeat(W, 1, 1))) # N*W,C,C
-        weight_w = self.softmax(torch.matmul(x_w, x_w_.repeat(H, 1, 1))) # N*H,C,C
-        out_h = torch.bmm(weight_h, x_h).view(N, W, -1, H).permute(0, 2, 3, 1)  #N,C,H,W
-        out_w = torch.bmm(weight_w, x_w).view(N, H, -1, W).permute(0, 2, 1, 3)  #N,C,H,W
+        x_h = x.permute(0, 3, 1, 2).contiguous().view(N * W, -1, H)
+        x_w = x.permute(0, 2, 1, 3).contiguous().view(N * H, -1, W)
+        x_h_ = self.conv_h(F.avg_pool2d(x, [1, W]).view(N, -1, H).permute(0, 2, 1))
+        x_w_ = self.conv_w(F.avg_pool2d(x, [H, 1]).view(N, -1, W).permute(0, 2, 1))
+        weight_h = self.softmax(torch.matmul(x_h, x_h_.repeat(W, 1, 1)))
+        weight_w = self.softmax(torch.matmul(x_w, x_w_.repeat(H, 1, 1)))
+        out_h = torch.bmm(weight_h, x_h).view(N, W, -1, H).permute(0, 2, 3, 1)
+        out_w = torch.bmm(weight_w, x_w).view(N, H, -1, W).permute(0, 2, 1, 3)
 
         out = self.gamma * (out_h + out_w) + x
 
         return self.conv(out)
 
-#Complete Decoder Architecture
+
 class Decoder(nn.Module):
     def __init__(self, in_channel_List=None):
         super(Decoder, self).__init__()
@@ -119,11 +181,19 @@ class Decoder(nn.Module):
         )
         self.u1 = UFRM()
         self.u2 = UFRM()
+        self.e1 = ERM(64,64)
+        self.e2 = ERM(64,64)
+        self.e3 = ERM(64,64)
+        self.e4 = ERM(64,64)
 
         self.b1 = BiAttention(64)
         self.b2 = BiAttention(64)
         self.b3 = BiAttention(64)
         self.b4 = BiAttention(64)
+
+        # self.cgm_4 = FeatureGuideModule(in_channel_List[3])
+        # self.cgm_3 = FeatureGuideModule(in_channel_List[2])
+        # self.cgm_2 = FeatureGuideModule(in_channel_List[1])
 
         self.ssfm_4 = SSFM(in_channel_List[3])
         self.ssfm_3 = SSFM(in_channel_List[2])
@@ -138,8 +208,7 @@ class Decoder(nn.Module):
 
     def forward(self, input1, input2, input3, input4):
         size = input1.size()[2:]
-
-        #Resizing features from BFEM
+        
         m1_2 = F.interpolate(input1, input2.size()[2:], mode='bilinear', align_corners=True)
         m2_1 = F.interpolate(input2, input1.size()[2:], mode='bilinear', align_corners=True)
         m2_3 = F.interpolate(input2, input3.size()[2:], mode='bilinear', align_corners=True)
@@ -147,6 +216,7 @@ class Decoder(nn.Module):
         m3_4 = F.interpolate(input3, input4.size()[2:], mode='bilinear', align_corners=True)
         m4_3 = F.interpolate(input4, input3.size()[2:], mode='bilinear', align_corners=True)
         
+        # input4 = self.e4(input4)
         layer4_1 = F.interpolate(self.u1(input4), size, mode='bilinear', align_corners=True)
         feature_map = self.feature_fuse(layer4_1)
 
@@ -166,8 +236,19 @@ class Decoder(nn.Module):
         layer2 = self.b3(layer2)
         feature1 = self.decoder_module1(
             torch.cat([F.interpolate(layer2, scale_factor=2, mode='bilinear', align_corners=True), input1,m2_1], 1))
+        # return feature1
         final_map = F.interpolate(self.decoder_final(self.u2(feature1)), scale_factor=2, mode='bilinear', align_corners=True)
         return final_map, self.sigmoid(final_map)
+        # return feature1,layer2,layer3,layer4
 
 
+if __name__ == '__main__':
+    input1 = torch.rand(8, 64, 88, 88)
+    input2 = torch.rand(8, 128, 44, 44)
+    input3 = torch.rand(8, 320, 22, 22)
+    input4 = torch.rand(8, 512, 11, 11)
 
+    cg = Decoder()
+    out1, out2 = cg(input1, input2, input3, input4)
+    print(out1.shape)
+    print(out2.shape)
