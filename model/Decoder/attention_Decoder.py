@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
+#Convolution + BN + Relu
 class BasicConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1):
         super(BasicConv2d, self).__init__()
@@ -18,8 +18,7 @@ class BasicConv2d(nn.Module):
         x = self.relu(x)
         return x
 
-
-# FGM 模块
+#Semantic Perception Fusion Module (SPFM)
 class SSFM(nn.Module):
     def __init__(self, in_dim):
         super(SSFM, self).__init__()
@@ -57,6 +56,7 @@ class SSFM(nn.Module):
 
         return out
 
+#Not used Here
 class ERM(nn.Module):
     def __init__(self, inc, outc):
         super(ERM, self).__init__()
@@ -121,6 +121,7 @@ class ERM(nn.Module):
         return f
 
 
+#Unified Feature Refinement Module (UFRM)
 class UFRM(nn.Module):
     def __init__(self):
         super(UFRM, self).__init__()
@@ -138,6 +139,8 @@ class UFRM(nn.Module):
         out = F.relu(self.bn(self.conv(torch.cat((fea2, fuse), dim=1))) + fea1, inplace=True)
         return out
 
+
+#Bi-Attention Module
 class BiAttention(nn.Module):
     def __init__(self, in_channel):
         super(BiAttention, self).__init__()
@@ -191,10 +194,6 @@ class Decoder(nn.Module):
         self.b3 = BiAttention(64)
         self.b4 = BiAttention(64)
 
-        # self.cgm_4 = FeatureGuideModule(in_channel_List[3])
-        # self.cgm_3 = FeatureGuideModule(in_channel_List[2])
-        # self.cgm_2 = FeatureGuideModule(in_channel_List[1])
-
         self.ssfm_4 = SSFM(in_channel_List[3])
         self.ssfm_3 = SSFM(in_channel_List[2])
         self.ssfm_2 = SSFM(in_channel_List[1])
@@ -216,7 +215,6 @@ class Decoder(nn.Module):
         m3_4 = F.interpolate(input3, input4.size()[2:], mode='bilinear', align_corners=True)
         m4_3 = F.interpolate(input4, input3.size()[2:], mode='bilinear', align_corners=True)
         
-        # input4 = self.e4(input4)
         layer4_1 = F.interpolate(self.u1(input4), size, mode='bilinear', align_corners=True)
         feature_map = self.feature_fuse(layer4_1)
 
@@ -236,10 +234,8 @@ class Decoder(nn.Module):
         layer2 = self.b3(layer2)
         feature1 = self.decoder_module1(
             torch.cat([F.interpolate(layer2, scale_factor=2, mode='bilinear', align_corners=True), input1,m2_1], 1))
-        # return feature1
         final_map = F.interpolate(self.decoder_final(self.u2(feature1)), scale_factor=2, mode='bilinear', align_corners=True)
         return final_map, self.sigmoid(final_map)
-        # return feature1,layer2,layer3,layer4
 
 
 if __name__ == '__main__':
