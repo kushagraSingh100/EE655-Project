@@ -1,5 +1,7 @@
 # Saliency Detection in Remote Sensing Images
 
+Requirements - `pip install pysodmetrics`
+
 EORSSD Dataset can be downloaded from here - [Link](https://github.com/rmcong/EORSSD-dataset)
 
 Uniformer weights can we downloaded from here - [Link](https://drive.usercontent.google.com/download?id=10FnwzMVgGL8bPO3EMZ7oG4vDvqnPoBK5&authuser=0)
